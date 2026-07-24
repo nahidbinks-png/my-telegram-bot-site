@@ -3,8 +3,8 @@ import telebot
 from flask import Flask
 import threading
 
-# তোমার টেলিগ্রাম বটের টোকেন এখানে বসানো হলো
-TOKEN = '8845203556:AAGFmDSMo47knzrDlseRmxIGb9EwqA6oUKM'
+# রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া হচ্ছে (গিটহাভে আর সিক্রেট দেখাবে না)
+TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
 # ফ্লাস্ক ওয়েব সার্ভার তৈরি (Render-এর পোর্ট ওপেন রাখার জন্য)
