@@ -1,3 +1,24 @@
+import os
+import telebot
+from flask import Flask
+import threading
+
+# তোমার টেলিগ্রাম বটের টোকেন এখানে বসাবে
+TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+bot = telebot.TeleBot(TOKEN)
+
+# ফ্লাস্ক ওয়েব সার্ভার তৈরি (Render-এর পোর্ট ওপেন রাখার জন্য)
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "BotSphere is online and running!"
+
+def run_web():
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port)
+
+# তোমার কাস্টম মেসেজ হ্যান্ডলার ফাংশন
 @bot.message_handler(func=lambda message: True)
 def reply_to_user(message):
     # ইউজার যা লিখবে সেটাকে ছোট হাতের অক্ষরে (lowercase) করে নেবে, যাতে ম্যাচ করতে সুবিধা হয়
@@ -27,3 +48,12 @@ def reply_to_user(message):
     else:
         bot.reply_to(message, "দুঃখিত, তোমার এই কথাটার উত্তর আমার সিস্টেমে এখনো যোগ করা হয়নি। তুমি চাইলে আমাকে নতুন কিছু শেখাতে পারো! 😅")
 
+# মেইন ফাংশন যেখানে ওয়েব সার্ভার ও বট একসাথে রান হবে
+if __name__ == '__main__':
+    # ফ্লাস্ক সার্ভার আলাদা একটি থ্রেডে রান করানো হলো
+    t = threading.Thread(target=run_web)
+    t.start()
+    
+    # টেলিগ্রাম বট পোলিং শুরু করা হলো
+    print("Bot is starting polling...")
+    bot.infinity_polling()
