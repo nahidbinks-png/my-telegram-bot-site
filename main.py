@@ -3,7 +3,7 @@ import telebot
 from flask import Flask
 import threading
 import yt_dlp
-from duckduckgo_search import DDGS
+import requests
 
 # রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -101,33 +101,44 @@ def reply_to_user(message):
                 print(f"Download Error: {e}")
             return
 
-    # ৩. DuckDuckGo সার্চ ফিচার (আপডেট করা মেথড)
+    # ৩. উইকিপিডিয়া ইনফো সার্চ ফিচার
+    if user_text == "search" or user_text == "google":
+        bot.reply_to(message, "⚠️ দয়া করে কী খুঁজতে চাও তা লিখে দাও। যেমন: `search bangladesh` বা `search python` 🔍")
+        return
+
     if user_text.startswith("search ") or user_text.startswith("google "):
-        query = message.text.replace("search", "").replace("google", "").strip()
+        query = message.text[7:].strip() if user_text.startswith("search ") else message.text[7:].strip()
         
-        searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে ইন্টারনেট থেকে তথ্য খোঁজা হচ্ছে...")
+        if not query:
+            bot.reply_to(message, "⚠️ সার্চ করার মতো কিছু লেখোনি! যেমন: `search bangladesh`")
+            return
+            
+        searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে তথ্য খোঁজা হচ্ছে...")
         
         try:
-            results = []
-            # নতুন ও সঠিক ফরম্যাটে DDGS কল করা
-            with DDGS() as ddgs:
-                for r in ddgs.text(query, max_results=3):
-                    results.append(r)
+            # Wikipedia API ব্যবহার করে তথ্য আনা (প্রথমে বাংলা উইকিপিডিয়া চেক করবে)
+            api_url = f"https://bn.wikipedia.org/api/rest_v1/page/summary/{query}"
+            response = requests.get(api_url)
             
-            if results:
-                response_text = f"🌐 **সার্চ ফলাফল ({query}):**\n\n"
-                for i, res in enumerate(results, 1):
-                    title = res.get('title', 'Link')
-                    href = res.get('href', '#')
-                    body = res.get('body', '')
-                    response_text += f"{i}. **[{title}]({href})**\n{body}\n\n"
+            if response.status_code != 200:
+                # বাংলায় না পেলে ইংরেজিতে ট্রাই করবে
+                api_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query}"
+                response = requests.get(api_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                title = data.get('title', query)
+                extract = data.get('extract', 'কোনো বিবরণ পাওয়া যায়নি।')
+                page_url = data.get('content_urls', {}).get('desktop', {}).get('page', '#')
+                
+                response_text = f"📖 **উইকিপিডিয়া তথ্য ({title}):**\n\n{extract}\n\n🔗 [বিস্তারিত পড়তে এখানে ক্লিক করুন]({page_url})"
                 
                 bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
             else:
-                bot.edit_message_text(f"❌ '{query}' সম্পর্কে কোনো ফলাফল পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
+                bot.edit_message_text(f"❌ '{query}' সম্পর্কে উইকিপিডিয়াতে কোনো তথ্য পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
                 
         except Exception as e:
-            bot.edit_message_text("❌ সার্চ করতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
+            bot.edit_message_text("❌ তথ্য খুঁজতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
             print(f"Search Error: {e}")
         return
 
