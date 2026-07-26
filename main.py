@@ -3,9 +3,9 @@ import telebot
 from flask import Flask
 import threading
 import yt_dlp
-from googlesearch import search  # গুগল সার্চের জন্য নতুন লাইব্রেরি
+import requests  # DuckDuckGo API কল করার জন্য
 
-# রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া হচ্ছে (গিটহাভে আর সিক্রেট দেখাবে না)
+# রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া হচ্ছে
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
@@ -46,29 +46,23 @@ bad_words = [
     "faltur bacha", "bekol", "pagol", "pagoler bacha", "bodmaish", "bodmaishi"
 ]
 
-# তোমার কাস্টম মেসেজ এবং মডারেশন হ্যান্ডলার ফাংশন
+# মেসেজ হ্যান্ডলার ফাংশন
 @bot.message_handler(func=lambda message: True)
 def reply_to_user(message):
     if not message.text:
         return
         
-    # ইউজার যা লিখবে সেটাকে ছোট হাতের অক্ষরে (lowercase) করে নেবে, যাতে ম্যাচ করতে সুবিধা হয়
     user_text = message.text.lower()
-    chat_type = message.chat.type # চ্যাটটি গ্রুপ নাকি প্রাইভেট তা চেক করা হচ্ছে
+    chat_type = message.chat.type 
     
     # ১. গ্রুপ বা সুপারগ্রুপের জন্য গালি ফিল্টার ও অটো-ব্যান চেক
     if chat_type in ['group', 'supergroup']:
         if any(word in user_text for word in bad_words):
             try:
                 user_name = message.from_user.first_name
-                
-                # গালিযুক্ত মেসেজটি ডিলিট করা
                 bot.delete_message(message.chat.id, message.message_id)
-                
-                # ইউজারকে গ্রুপ থেকে ব্যান করা
                 bot.ban_chat_member(message.chat.id, message.from_user.id)
                 
-                # বাংলায় কারণসহ মেসেজ পাঠানো
                 mention = f"@{message.from_user.username}" if message.from_user.username else user_name
                 bot.send_message(
                     message.chat.id, 
@@ -76,9 +70,9 @@ def reply_to_user(message):
                 )
                 return
             except Exception as e:
-                print(f"Ban Error (Admin permission lagte pare): {e}")
+                print(f"Ban Error: {e}")
 
-    # ২. ভিডিও ডাউনলোডার ফিচার (ইউটিউব বা অন্যান্য লিংক চেক করা)
+    # ২. ভিডিও ডাউনলোডার ফিচার
     if "http://" in user_text or "https://" in user_text:
         if "youtube.com" in user_text or "youtu.be" in user_text or "facebook.com" in user_text or "instagram.com" in user_text:
             processing_msg = bot.reply_to(message, "⏳ ভিডিও ডাউনলোড হচ্ছে, একটু অপেক্ষা করো...")
@@ -87,81 +81,90 @@ def reply_to_user(message):
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': output_template,
-                'max_filesize': 50 * 1024 * 1024, # সার্ভার সুরক্ষার জন্য সর্বোচ্চ ৫০ মোবাইট লিমিট
+                'max_filesize': 50 * 1024 * 1024, 
             }
             
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([message.text])
                 
-                # ভিডিও ফাইল ইউজারের কাছে পাঠানো
                 with open(output_template, 'rb') as vid:
                     bot.send_video(message.chat.id, vid, reply_to_message_id=message.id)
                 
-                # প্রসেসিং মেসেজটি ডিলিট করে দেওয়া
                 bot.delete_message(message.chat.id, processing_msg.message_id)
                 
-                # ডাউনলোড শেষে সার্ভার থেকে ফাইল মুছে ফেলা
                 if os.path.exists(output_template):
                     os.remove(output_template)
                     
             except Exception as e:
-                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি! (সম্ভবত ফাইলটি অনেক বড় বা লিংকটি সঠিক নয়)", message.chat.id, processing_msg.message_id)
+                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি! (ফাইল অনেক বড় বা লিংক ভুল)", message.chat.id, processing_msg.message_id)
                 print(f"Download Error: {e}")
             return
 
-    # ৩. গুগল সার্চ ফিচার (ইউজার যদি 'search' বা 'google' লিখে কিছু জানতে চায়)
+    # ৩. DuckDuckGo সার্চ ফিচার (ইউজার 'search' বা 'google' লিখলে)
     if user_text.startswith("search ") or user_text.startswith("google "):
         query = message.text.replace("search", "").replace("google", "").strip()
         
-        searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে গুগল থেকে তথ্য খোঁজা হচ্ছে...")
+        searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে ইন্টারনেট থেকে তথ্য খোঁজা হচ্ছে...")
         
         try:
-            results = []
-            for url in search(query, num_results=3):
-                results.append(url)
+            # DuckDuckGo Instant Answer API ব্যবহার করা
+            url = f"https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1"
+            response = requests.get(url).json()
             
-            if results:
-                response_text = f"🌐 **গুগল সার্চ ফলাফল ({query}):**\n\n"
-                for i, url in enumerate(results, 1):
-                    response_text += f"{i}. {url}\n"
+            answer = response.get("AbstractText")
+            results = response.get("RelatedTopics", [])
+            
+            response_text = f"🌐 **ইন্টারনেট সার্চ ফলাফল ({query}):**\n\n"
+            
+            if answer:
+                response_text += f"📌 **সারাংশ:** {answer}\n\n"
+            
+            # যদি সরাসরি টেক্সট বা সারাংশ না থাকে, তবে রিলেটেড টপিক বা লিংক দেখাবে
+            found_something = False
+            if answer:
+                found_something = True
                 
-                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown")
+            if results:
+                response_text += "🔗 **সম্পর্কিত লিংক/তথ্য:**\n"
+                count = 0
+                for topic in results:
+                    if 'Text' in topic and 'FirstURL' in topic:
+                        response_text += f"• [{topic['Text']}]({topic['FirstURL']})\n"
+                        count += 1
+                        if count >= 3:  # সর্বোচ্চ ৩টি দেখাবে
+                            break
+                            if count > 0:
+                                found_something = True
+
+            if found_something:
+                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
             else:
-                bot.edit_message_text("❌ কোনো ফলাফল পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
+                bot.edit_message_text(f"❌ '{query}' সম্পর্কে নির্দিষ্ট কোনো তথ্য পাওয়া যায়নি। অন্য কিছু লিখে ট্রাই করো!", message.chat.id, searching_msg.message_id)
                 
         except Exception as e:
             bot.edit_message_text("❌ সার্চ করতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
-            print(f"Search Error: {e}")
+            print(f"Search API Error: {e}")
         return
 
-    # ৪. সাধারণ কথার উত্তর (হাই/হ্যালো ইত্যাদি)
+    # ৪. সাধারণ কথার উত্তর
     if any(word in user_text for word in ["hi", "hello", "hlw", "হাই", "হ্যালো"]):
         bot.reply_to(message, "হ্যালো! কেমন আছো? বলো কীভাবে সাহায্য করতে পারি? ☺️")
         
-    elif any(word in user_text for word in ["basa koi", "basa kothay", "basa kothey", "বাসা কোথায়", "কোথায় থাকো", "basa"]):
-        bot.reply_to(message, "আমি তো একটা বট! আমার বাসা হলো ইন্টারনেটে (Render সার্ভারে), তবে আমি সবসময় তোমার ফোনেই থাকি! ☁️📱")
+    elif any(word in user_text for word in ["basa koi", "basa kothay", "বাসা কোথায়", "কোথায় থাকো", "basa"]):
+        bot.reply_to(message, "আমি তো একটা বট! আমার বাসা ইন্টারনেটের Render সার্ভারে। ☁️📱")
         
-    elif any(word in user_text for word in ["kno msg", "keno message", "msg keno", "msg diso", "কেন মেসেজ"]):
-        bot.reply_to(message, "তুমি আমাকে তৈরি করে চালু করেছো, তাই আমি তোমার সাথে কথা বলছি। আমি তো তোমারই বানানো! 🤖")
-        
-    elif any(word in user_text for word in ["help lagbe", "sahajjo lagbe", "kono help", "সাহায্য লাগবে", "হেল্প"]):
-        bot.reply_to(message, "আমার কোনো সাহায্য লাগবে না, কারণ আমি তোমাকেই সাহায্য করার জন্য তৈরি হয়েছি! বলো তোমার কী দরকার? 🤝")
-        
-    elif any(word in user_text for word in ["amr somporko", "jante chaw", "janthe chey", "ki jante chasso", "আমার সম্পর্কে", "কী জানতে চাও"]):
-        bot.reply_to(message, "তুমি আমার বস! আমি তোমার সম্পর্কে এটুকুই জানি। তুমি আমাকে যা নির্দেশ দেবে, আমি ঠিক সেটাই করবো! 🚀")
+    elif any(word in user_text for word in ["help lagbe", "sahajjo lagbe", "সাহায্য লাগবে", "হেল্প"]):
+        bot.reply_to(message, "বলো তোমার কী দরকার? আমি সাহায্য করার জন্যই প্রস্তুত আছি! 🤝")
         
     else:
-        # শুধুমাত্র ইনবক্সে (Private Chat) অচেনা কথার উত্তর দেবে, গ্রুপে ফালতু স্প্যাম করবে না
         if chat_type == 'private':
-            bot.reply_to(message, "দুঃখিত, তোমার এই কথাটার উত্তর আমার সিস্টেমে এখনো যোগ করা হয়নি। তুমি চাইলে মেসেজের শুরুতে `search` লিখে গুগল থেকে যেকোনো তথ্য খুঁজে নিতে পারো! 🔍")
+            bot.reply_to(message, "দুঃখিত, এই কথার উত্তর আমার সিস্টেমে নেই। তুমি চাইলে মেসেজের শুরুতে `search` লিখে যেকোনো বিষয় সার্চ করে দেখতে পারো! 🔍")
 
-# মেইন ফাংশন যেখানে ওয়েব সার্ভার ও বট একসাথে রান হবে
+# সার্ভার ও বট রান করা
 if __name__ == '__main__':
-    # ফ্লাস্ক সার্ভার আলাদা একটি থ্রেডে রান করানো হলো
     t = threading.Thread(target=run_web)
     t.start()
     
-    # টেলিগ্রাম বট পোলিং শুরু করা হলো
     print("Bot is starting polling...")
     bot.infinity_polling()
