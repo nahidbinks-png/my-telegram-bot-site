@@ -3,7 +3,7 @@ import telebot
 from flask import Flask
 import threading
 import yt_dlp
-from duckduckgo_search import DDGS  # DuckDuckGo সার্চ লাইব্রেরি
+from duckduckgo_search import DDGS
 
 # রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -101,7 +101,7 @@ def reply_to_user(message):
                 print(f"Download Error: {e}")
             return
 
-    # ৩. DuckDuckGo সার্চ ফিচার
+    # ৩. DuckDuckGo সার্চ ফিচার (আপডেট করা মেথড)
     if user_text.startswith("search ") or user_text.startswith("google "):
         query = message.text.replace("search", "").replace("google", "").strip()
         
@@ -109,7 +109,7 @@ def reply_to_user(message):
         
         try:
             results = []
-            # DDGS লাইব্রেরির মাধ্যমে সার্চ করা
+            # নতুন ও সঠিক ফরম্যাটে DDGS কল করা
             with DDGS() as ddgs:
                 for r in ddgs.text(query, max_results=3):
                     results.append(r)
@@ -120,7 +120,7 @@ def reply_to_user(message):
                     title = res.get('title', 'Link')
                     href = res.get('href', '#')
                     body = res.get('body', '')
-                    response_text += f"{i}. **[{title}]({href})**\n_{body[:100]}...\n\n"
+                    response_text += f"{i}. **[{title}]({href})**\n{body}\n\n"
                 
                 bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
             else:
