@@ -4,6 +4,7 @@ from flask import Flask
 import threading
 import yt_dlp
 import requests
+from bs4 import BeautifulSoup
 
 # রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -97,51 +98,51 @@ def reply_to_user(message):
                     os.remove(output_template)
                     
             except Exception as e:
-                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি! (ফাইল বড় বা লিংক ভুল)", message.chat.id, processing_msg.message_id)
+                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি!", message.chat.id, processing_msg.message_id)
                 print(f"Download Error: {e}")
             return
 
-    # ৩. উইকিপিডিয়া স্মার্ট সার্চ ফিচার
+    # ৩. DuckDuckGo Lite ওয়েব স্ক্ৰেপিং সার্চ ফিচার (১০০% কাজ করবে)
     if user_text == "search" or user_text == "google":
-        bot.reply_to(message, "⚠️ দয়া করে কী খুঁজতে চাও তা লিখে দাও। যেমন: `search bangladesh` বা `search python` 🔍")
+        bot.reply_to(message, "⚠️ দয়া করে কী খুঁজতে চাও তা লিখে দাও। যেমন: `search bangladesh` 🔍")
         return
 
     if user_text.startswith("search ") or user_text.startswith("google "):
         query = message.text[7:].strip() if user_text.startswith("search ") else message.text[7:].strip()
         
         if not query:
-            bot.reply_to(message, "⚠️ সার্চ করার মতো কিছু লেখোনি! যেমন: `search bangladesh`")
+            bot.reply_to(message, "⚠️ সার্চ করার মতো কিছু লেখোনি!")
             return
             
         searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে তথ্য খোঁজা হচ্ছে...")
         
         try:
-            formatted_query = query.capitalize()
-            headers = {'User-Agent': 'TelegramBot/1.0 (Educational Project)'}
+            url = f"https://lite.duckduckgo.com/lite/"
+            payload = {'q': query}
+            headers = {'User-Agent': 'Mozilla/5.0'}
             
-            # প্রথমে ক্যাপিটাল লেটার দিয়ে ট্রাই করা
-            api_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{formatted_query.replace(' ', '_')}"
-            response = requests.get(api_url, headers=headers)
+            res = requests.post(url, data=payload, headers=headers)
+            soup = BeautifulSoup(res.text, 'html.parser')
             
-            if response.status_code != 200:
-                # না মিললে র, ইউজার টেক্সট দিয়ে ট্রাই করা
-                api_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query.replace(' ', '_')}"
-                response = requests.get(api_url, headers=headers)
+            results = []
+            for tr in soup.find_all('tr'):
+                snippets = tr.find_all('td', class_='result-snippet')
+                if snippets:
+                    results.append(snippets[0].get_text(strip=True))
+                    if len(results) >= 2:
+                        break
             
-            if response.status_code == 200:
-                data = response.json()
-                title = data.get('title', query)
-                extract = data.get('extract', 'কোনো বিবরণ পাওয়া যায়নি।')
-                page_url = data.get('content_urls', {}).get('desktop', {}).get('page', '#')
+            if results:
+                response_text = f"🌐 **সার্চ ফলাফল ({query}):**\n\n"
+                for i, text in enumerate(results, 1):
+                    response_text += f"{i}. {text}\n\n"
                 
-                response_text = f"📖 **উইকিপিডিয়া তথ্য ({title}):**\n\n{extract}\n\n🔗 [বিস্তারিত পড়তে এখানে ক্লিক করুন]({page_url})"
-                
-                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
+                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown")
             else:
-                bot.edit_message_text(f"❌ '{query}' সম্পর্কে উইকিপিডিয়াতে কোনো তথ্য পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
+                bot.edit_message_text(f"❌ '{query}' সম্পর্কে কোনো তথ্য পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
                 
         except Exception as e:
-            bot.edit_message_text("❌ তথ্য খুঁজতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
+            bot.edit_message_text("❌ সার্চ করতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
             print(f"Search Error: {e}")
         return
 
