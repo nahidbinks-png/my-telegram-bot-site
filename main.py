@@ -116,43 +116,29 @@ def reply_to_user(message):
         searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে তথ্য খোঁজা হচ্ছে...")
         
         try:
-            # প্রথমে উইকিপিডিয়া সার্চ এপিআই দিয়ে সঠিক পেজ বা টাইটেল খোঁজা
-            search_url = f"https://bn.wikipedia.org/w/api.php?action=opensearch&search={query}&limit=1&format=json"
-            res = requests.get(search_url).json()
+            formatted_query = query.capitalize()
+            headers = {'User-Agent': 'TelegramBot/1.0 (Educational Project)'}
             
-            page_title = None
-            if res and len(res) > 1 and res[1]:
-                page_title = res[1][0]  # বাংলায় প্রথম সঠিক নাম পাওয়া গেলে
+            # প্রথমে ক্যাপিটাল লেটার দিয়ে ট্রাই করা
+            api_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{formatted_query.replace(' ', '_')}"
+            response = requests.get(api_url, headers=headers)
             
-            # যদি বাংলায় না পাওয়া যায়, তবে ইংরেজিতে সার্চ করা
-            if not page_title:
-                search_url_en = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={query}&limit=1&format=json"
-                res_en = requests.get(search_url_en).json()
-                if res_en and len(res_en) > 1 and res_en[1]:
-                    page_title = res_en[1][0]
-                    api_lang = "en"
-                else:
-                    api_lang = "bn"
-            else:
-                api_lang = "bn"
+            if response.status_code != 200:
+                # না মিললে র, ইউজার টেক্সট দিয়ে ট্রাই করা
+                api_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query.replace(' ', '_')}"
+                response = requests.get(api_url, headers=headers)
             
-            if page_title:
-                # প্রাপ্ত সঠিক টাইটেল দিয়ে উইকিপিডিয়া সামারি এপিআই কল করা
-                summary_url = f"https://{api_lang}.wikipedia.org/api/rest_v1/page/summary/{page_title.replace(' ', '_')}"
-                response = requests.get(summary_url)
+            if response.status_code == 200:
+                data = response.json()
+                title = data.get('title', query)
+                extract = data.get('extract', 'কোনো বিবরণ পাওয়া যায়নি।')
+                page_url = data.get('content_urls', {}).get('desktop', {}).get('page', '#')
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    title = data.get('title', query)
-                    extract = data.get('extract', 'কোনো বিবরণ পাওয়া যায়নি।')
-                    page_url = data.get('content_urls', {}).get('desktop', {}).get('page', '#')
-                    
-                    response_text = f"📖 **উইকিপিডিয়া তথ্য ({title}):**\n\n{extract}\n\n🔗 [বিস্তারিত পড়তে এখানে ক্লিক করুন]({page_url})"
-                    
-                    bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
-                    return
-            
-            bot.edit_message_text(f"❌ '{query}' সম্পর্কে উইকিপিডিয়াতে কোনো তথ্য পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
+                response_text = f"📖 **উইকিপিডিয়া তথ্য ({title}):**\n\n{extract}\n\n🔗 [বিস্তারিত পড়তে এখানে ক্লিক করুন]({page_url})"
+                
+                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
+            else:
+                bot.edit_message_text(f"❌ '{query}' সম্পর্কে উইকিপিডিয়াতে কোনো তথ্য পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
                 
         except Exception as e:
             bot.edit_message_text("❌ তথ্য খুঁজতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
