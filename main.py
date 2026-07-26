@@ -2,6 +2,7 @@ import os
 import telebot
 from flask import Flask
 import threading
+import yt_dlp
 
 # রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া হচ্ছে (গিটহাভে আর সিক্রেট দেখাবে না)
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -76,7 +77,39 @@ def reply_to_user(message):
             except Exception as e:
                 print(f"Ban Error (Admin permission lagte pare): {e}")
 
-    # ২. সাধারণ কথার উত্তর (হাই/হ্যালো ইত্যাদি)
+    # ২. ভিডিও ডাউনলোডার ফিচার (ইউটিউব বা অন্যান্য লিংক চেক করা)
+    if "http://" in user_text or "https://" in user_text:
+        if "youtube.com" in user_text or "youtu.be" in user_text or "facebook.com" in user_text or "instagram.com" in user_text:
+            processing_msg = bot.reply_to(message, "⏳ ভিডিও ডাউনলোড হচ্ছে, একটু অপেক্ষা করো...")
+            
+            output_template = "video.mp4"
+            ydl_opts = {
+                'format': 'best[ext=mp4]/best',
+                'outtmpl': output_template,
+                'max_filesize': 50 * 1024 * 1024, # সার্ভার সুরক্ষার জন্য সর্বোচ্চ ৫০ মোবাইট লিমিট
+            }
+            
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([message.text])
+                
+                # ভিডিও ফাইল ইউজারের কাছে পাঠানো
+                with open(output_template, 'rb') as vid:
+                    bot.send_video(message.chat.id, vid, reply_to_message_id=message.id)
+                
+                # প্রসেসিং মেসেজটি ডিলিট করে দেওয়া
+                bot.delete_message(message.chat.id, processing_msg.message_id)
+                
+                # ডাউনলোড শেষে সার্ভার থেকে ফাইল মুছে ফেলা
+                if os.path.exists(output_template):
+                    os.remove(output_template)
+                    
+            except Exception as e:
+                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি! (সম্ভবত ফাইলটি অনেক বড় বা লিংকটি সঠিক নয়)", message.chat.id, processing_msg.message_id)
+                print(f"Download Error: {e}")
+            return
+
+    # ৩. সাধারণ কথার উত্তর (হাই/হ্যালো ইত্যাদি)
     if any(word in user_text for word in ["hi", "hello", "hlw", "হাই", "হ্যালো"]):
         bot.reply_to(message, "হ্যালো! কেমন আছো? বলো কীভাবে সাহায্য করতে পারি? ☺️")
         
