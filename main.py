@@ -3,13 +3,13 @@ import telebot
 from flask import Flask
 import threading
 import yt_dlp
-import requests  # DuckDuckGo API কল করার জন্য
+from duckduckgo_search import DDGS  # DuckDuckGo সার্চ লাইব্রেরি
 
-# রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া হচ্ছে
+# রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# ফ্লাস্ক ওয়েব সার্ভার তৈরি (Render-এর পোর্ট ওপেন রাখার জন্য)
+# ফ্লাস্ক ওয়েব সার্ভার (Render পোর্ট ওপেন রাখার জন্য)
 app = Flask('')
 
 @app.route('/')
@@ -20,7 +20,7 @@ def run_web():
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port)
 
-# গালি বা খারাপ শব্দের বিশাল তালিকা
+# গালি বা খারাপ শব্দের তালিকা
 bad_words = [
     "bal", "chudir", "madarchod", "bhenchod", "sala", "shala", "magi", "maggi", 
     "puti", "fokir", "bokachoda", "chodna", "baler", "harami", "haramzada", 
@@ -46,7 +46,7 @@ bad_words = [
     "faltur bacha", "bekol", "pagol", "pagoler bacha", "bodmaish", "bodmaishi"
 ]
 
-# মেসেজ হ্যান্ডলার ফাংশন
+# মেসেজ হ্যান্ডলার
 @bot.message_handler(func=lambda message: True)
 def reply_to_user(message):
     if not message.text:
@@ -55,7 +55,7 @@ def reply_to_user(message):
     user_text = message.text.lower()
     chat_type = message.chat.type 
     
-    # ১. গ্রুপ বা সুপারগ্রুপের জন্য গালি ফিল্টার ও অটো-ব্যান চেক
+    # ১. গ্রুপ মডারেশন ও অটো-ব্যান
     if chat_type in ['group', 'supergroup']:
         if any(word in user_text for word in bad_words):
             try:
@@ -97,54 +97,38 @@ def reply_to_user(message):
                     os.remove(output_template)
                     
             except Exception as e:
-                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি! (ফাইল অনেক বড় বা লিংক ভুল)", message.chat.id, processing_msg.message_id)
+                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি! (ফাইল বড় বা লিংক ভুল)", message.chat.id, processing_msg.message_id)
                 print(f"Download Error: {e}")
             return
 
-    # ৩. DuckDuckGo সার্চ ফিচার (ইউজার 'search' বা 'google' লিখলে)
+    # ৩. DuckDuckGo সার্চ ফিচার
     if user_text.startswith("search ") or user_text.startswith("google "):
         query = message.text.replace("search", "").replace("google", "").strip()
         
         searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে ইন্টারনেট থেকে তথ্য খোঁজা হচ্ছে...")
         
         try:
-            # DuckDuckGo Instant Answer API ব্যবহার করা
-            url = f"https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1"
-            response = requests.get(url).json()
+            results = []
+            # DDGS লাইব্রেরির মাধ্যমে সার্চ করা
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=3):
+                    results.append(r)
             
-            answer = response.get("AbstractText")
-            results = response.get("RelatedTopics", [])
-            
-            response_text = f"🌐 **ইন্টারনেট সার্চ ফলাফল ({query}):**\n\n"
-            
-            if answer:
-                response_text += f"📌 **সারাংশ:** {answer}\n\n"
-            
-            # যদি সরাসরি টেক্সট বা সারাংশ না থাকে, তবে রিলেটেড টপিক বা লিংক দেখাবে
-            found_something = False
-            if answer:
-                found_something = True
-                
             if results:
-                response_text += "🔗 **সম্পর্কিত লিংক/তথ্য:**\n"
-                count = 0
-                for topic in results:
-                    if 'Text' in topic and 'FirstURL' in topic:
-                        response_text += f"• [{topic['Text']}]({topic['FirstURL']})\n"
-                        count += 1
-                        if count >= 3:  # সর্বোচ্চ ৩টি দেখাবে
-                            break
-                            if count > 0:
-                                found_something = True
-
-            if found_something:
+                response_text = f"🌐 **সার্চ ফলাফল ({query}):**\n\n"
+                for i, res in enumerate(results, 1):
+                    title = res.get('title', 'Link')
+                    href = res.get('href', '#')
+                    body = res.get('body', '')
+                    response_text += f"{i}. **[{title}]({href})**\n_{body[:100]}...\n\n"
+                
                 bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown", disable_web_page_preview=True)
             else:
-                bot.edit_message_text(f"❌ '{query}' সম্পর্কে নির্দিষ্ট কোনো তথ্য পাওয়া যায়নি। অন্য কিছু লিখে ট্রাই করো!", message.chat.id, searching_msg.message_id)
+                bot.edit_message_text(f"❌ '{query}' সম্পর্কে কোনো ফলাফল পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
                 
         except Exception as e:
             bot.edit_message_text("❌ সার্চ করতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
-            print(f"Search API Error: {e}")
+            print(f"Search Error: {e}")
         return
 
     # ৪. সাধারণ কথার উত্তর
