@@ -3,6 +3,7 @@ import telebot
 from flask import Flask
 import threading
 import yt_dlp
+from googlesearch import search  # গুগল সার্চের জন্য নতুন লাইব্রেরি
 
 # রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া হচ্ছে (গিটহাভে আর সিক্রেট দেখাবে না)
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -109,7 +110,32 @@ def reply_to_user(message):
                 print(f"Download Error: {e}")
             return
 
-    # ৩. সাধারণ কথার উত্তর (হাই/হ্যালো ইত্যাদি)
+    # ৩. গুগল সার্চ ফিচার (ইউজার যদি 'search' বা 'google' লিখে কিছু জানতে চায়)
+    if user_text.startswith("search ") or user_text.startswith("google "):
+        query = message.text.replace("search", "").replace("google", "").strip()
+        
+        searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে গুগল থেকে তথ্য খোঁজা হচ্ছে...")
+        
+        try:
+            results = []
+            for url in search(query, num_results=3):
+                results.append(url)
+            
+            if results:
+                response_text = f"🌐 **গুগল সার্চ ফলাফল ({query}):**\n\n"
+                for i, url in enumerate(results, 1):
+                    response_text += f"{i}. {url}\n"
+                
+                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown")
+            else:
+                bot.edit_message_text("❌ কোনো ফলাফল পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
+                
+        except Exception as e:
+            bot.edit_message_text("❌ সার্চ করতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
+            print(f"Search Error: {e}")
+        return
+
+    # ৪. সাধারণ কথার উত্তর (হাই/হ্যালো ইত্যাদি)
     if any(word in user_text for word in ["hi", "hello", "hlw", "হাই", "হ্যালো"]):
         bot.reply_to(message, "হ্যালো! কেমন আছো? বলো কীভাবে সাহায্য করতে পারি? ☺️")
         
@@ -128,7 +154,7 @@ def reply_to_user(message):
     else:
         # শুধুমাত্র ইনবক্সে (Private Chat) অচেনা কথার উত্তর দেবে, গ্রুপে ফালতু স্প্যাম করবে না
         if chat_type == 'private':
-            bot.reply_to(message, "দুঃখিত, তোমার এই কথাটার উত্তর আমার সিস্টেমে এখনো যোগ করা হয়নি। তুমি চাইলে আমাকে নতুন কিছু শেখাতে পারো! 😅")
+            bot.reply_to(message, "দুঃখিত, তোমার এই কথাটার উত্তর আমার সিস্টেমে এখনো যোগ করা হয়নি। তুমি চাইলে মেসেজের শুরুতে `search` লিখে গুগল থেকে যেকোনো তথ্য খুঁজে নিতে পারো! 🔍")
 
 # মেইন ফাংশন যেখানে ওয়েব সার্ভার ও বট একসাথে রান হবে
 if __name__ == '__main__':
