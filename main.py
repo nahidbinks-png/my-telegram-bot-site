@@ -1,169 +1,143 @@
 import os
 import telebot
+from telebot import types
+from supabase import create_client, Client
 from flask import Flask
 import threading
-import yt_dlp
-import requests
-from bs4 import BeautifulSoup
 
-# রেন্ডারের এনভায়রনমেন্ট থেকে টোকেন নেওয়া
-TOKEN = os.environ.get('BOT_TOKEN')
+# এনভায়রনমেন্ট ভ্যারিয়েবল থেকে টোকেন এবং ডাটাবেজ তথ্য নেওয়া
+BOTTOKEN = os.environ.get('BOT_TOKEN')
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+
 bot = telebot.TeleBot(TOKEN)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ফ্লাস্ক ওয়েব সার্ভার (Render পোর্ট ওপেন রাখার জন্য)
+# ফ্লাস্ক সার্ভার (Render-এ পোর্ট সচল রাখার জন্য)
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "BotSphere is online and running!"
+    return "Refer & Earn Bot is running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8000))
     app.run(host='0.0.0.0', port=port)
 
-# গালি বা খারাপ শব্দের তালিকা
-bad_words = [
-    "bal", "chudir", "madarchod", "bhenchod", "sala", "shala", "magi", "maggi", 
-    "puti", "fokir", "bokachoda", "chodna", "baler", "harami", "haramzada", 
-    "kutta", "kuttar baccha", "bastard", "chuda", "chudi", "chudchi", "guda", 
-    "gud", "pundir", "shondha", "beshya", "boshi", "banchod", "madrachod", 
-    "mc", "bc", "lc", "fc", "gandu", "hijra", "khankir", "khanki", "khankir pola", 
-    "pola", "chudani", "shala", "shali", "bailla", "choocha", "choddu", "guu", 
-    "gu", "haggu", "mutki", "baba", "mai", "bap", "shokhi", "shon", "shala",
-    "baler bacha", "magir pola", "khankir magi", "bhencho", "madar", "chudir bhai",
-    "guer bacha", "hagur pola", "tui chuda", "tor baap", "tor ma", "tor bon",
-    "tor bou", "shalar puta", "haramzadar", "kuttar polapain", "suor", "suorer bacha",
-    "shikari", "kania", "chodna pola", "balchoda", "gudar bacha", "gudmara", 
-    "gudmarani", "chudani pola", "baler bhai", "fokirni", "fokirer bacha", "chocha",
-    "chodon", "chudku", "chudku bacha", "ponti", "pontir pola", "bhari", "boka",
-    "chotoalok", "chotoaloker bacha", "tor goy", "tor guu", "tor mukhe guu",
-    "magir po", "khankir po", "chudir po", "baler po", "haramir po", "kuttar po",
-    "chud-chudi", "chuda-chudi", "marani", "maranir po", "putir po", "shalar po",
-    "bhenchodar", "gandugiri", "gandubaz", "hijrar bacha", "napunker bacha",
-    "chudki", "chudni", "chudail", "shurkhor", "sudkhor", "chor", "dakat",
-    "badmaish", "badmaisher bacha", "shoytan", "shoytaner bacha", "gonda",
-    "gondar bacha", "mastan", "mastaner bacha", "lancha", "lanchar bacha",
-    "kanja", "kanjar bacha", "chota", "chotar bacha", "chotamota", "faltu",
-    "faltur bacha", "bekol", "pagol", "pagoler bacha", "bodmaish", "bodmaishi"
-]
+# মেইন মেনু কিবোর্ড
+def main_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        types.KeyboardButton("My Balance Ω"),
+        types.KeyboardButton("Refer & Earn 👥"),
+        types.KeyboardButton("Set Wallet 💎"),
+        types.KeyboardButton("Cash Out 💡")
+    )
+    return markup
 
-# মেসেজ হ্যান্ডলার
-@bot.message_handler(func=lambda message: True)
-def reply_to_user(message):
-    if not message.text:
-        return
-        
-    user_text = message.text.lower()
-    chat_type = message.chat.type 
+# /start কমান্ড এবং রেফারেল হ্যান্ডলার
+@bot.message_handler(commands=['start'])
+def start_handler(message):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name
     
-    # ১. গ্রুপ মডারেশন ও অটো-ব্যান
-    if chat_type in ['group', 'supergroup']:
-        if any(word in user_text for word in bad_words):
-            try:
-                user_name = message.from_user.first_name
-                bot.delete_message(message.chat.id, message.message_id)
-                bot.ban_chat_member(message.chat.id, message.from_user.id)
-                
-                mention = f"@{message.from_user.username}" if message.from_user.username else user_name
-                bot.send_message(
-                    message.chat.id, 
-                    f"⚠️ {mention} আপনার বাজে আচরণের জন্য আপনাকে গ্রুপ থেকে ব্যান করা হলো!"
-                )
-                return
-            except Exception as e:
-                print(f"Ban Error: {e}")
-
-    # ২. ভিডিও ডাউনলোডার ফিচার
-    if "http://" in user_text or "https://" in user_text:
-        if "youtube.com" in user_text or "youtu.be" in user_text or "facebook.com" in user_text or "instagram.com" in user_text:
-            processing_msg = bot.reply_to(message, "⏳ ভিডিও ডাউনলোড হচ্ছে, একটু অপেক্ষা করো...")
-            
-            output_template = "video.mp4"
-            ydl_opts = {
-                'format': 'best[ext=mp4]/best',
-                'outtmpl': output_template,
-                'max_filesize': 50 * 1024 * 1024, 
-            }
-            
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([message.text])
-                
-                with open(output_template, 'rb') as vid:
-                    bot.send_video(message.chat.id, vid, reply_to_message_id=message.id)
-                
-                bot.delete_message(message.chat.id, processing_msg.message_id)
-                
-                if os.path.exists(output_template):
-                    os.remove(output_template)
-                    
-            except Exception as e:
-                bot.edit_message_text(f"❌ ভিডিওটি ডাউনলোড করা সম্ভব হয়নি!", message.chat.id, processing_msg.message_id)
-                print(f"Download Error: {e}")
-            return
-
-    # ৩. DuckDuckGo Lite ওয়েব স্ক্ৰেপিং সার্চ ফিচার (১০০% কাজ করবে)
-    if user_text == "search" or user_text == "google":
-        bot.reply_to(message, "⚠️ দয়া করে কী খুঁজতে চাও তা লিখে দাও। যেমন: `search bangladesh` 🔍")
-        return
-
-    if user_text.startswith("search ") or user_text.startswith("google "):
-        query = message.text[7:].strip() if user_text.startswith("search ") else message.text[7:].strip()
-        
-        if not query:
-            bot.reply_to(message, "⚠️ সার্চ করার মতো কিছু লেখোনি!")
-            return
-            
-        searching_msg = bot.reply_to(message, f"🔍 '{query}' সম্পর্কে তথ্য খোঁজা হচ্ছে...")
-        
+    # রেফারের প্যারামিটার চেক করা (যেমন: /start 123456789)
+    args = message.text.split()
+    referrer_id = None
+    if len(args) > 1:
         try:
-            url = f"https://lite.duckduckgo.com/lite/"
-            payload = {'q': query}
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            
-            res = requests.post(url, data=payload, headers=headers)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            
-            results = []
-            for tr in soup.find_all('tr'):
-                snippets = tr.find_all('td', class_='result-snippet')
-                if snippets:
-                    results.append(snippets[0].get_text(strip=True))
-                    if len(results) >= 2:
-                        break
-            
-            if results:
-                response_text = f"🌐 **সার্চ ফলাফল ({query}):**\n\n"
-                for i, text in enumerate(results, 1):
-                    response_text += f"{i}. {text}\n\n"
-                
-                bot.edit_message_text(response_text, message.chat.id, searching_msg.message_id, parse_mode="Markdown")
-            else:
-                bot.edit_message_text(f"❌ '{query}' সম্পর্কে কোনো তথ্য পাওয়া যায়নি!", message.chat.id, searching_msg.message_id)
-                
-        except Exception as e:
-            bot.edit_message_text("❌ সার্চ করতে গিয়ে সমস্যা হয়েছে!", message.chat.id, searching_msg.message_id)
-            print(f"Search Error: {e}")
-        return
+            referrer_id = int(args[1])
+        except ValueError:
+            pass
 
-    # ৪. সাধারণ কথার উত্তর
-    if any(word in user_text for word in ["hi", "hello", "hlw", "হাই", "হ্যালো"]):
-        bot.reply_to(message, "হ্যালো! কেমন আছো? বলো কীভাবে সাহায্য করতে পারি? ☺️")
+    # ইউজারের ডেটা ডাটাবেজে আছে কি না চেক করা
+    response = supabase.table("users").select("*").eq("user_id", user_id).execute()
+    
+    if not response.data:
+        # নতুন ইউজার হলে ডাটাবেজে সেভ করা
+        supabase.table("users").insert({
+            "user_id": user_id,
+            "balance": 0.0,
+            "wallet": "Not Set",
+            "referrals": 0
+        }).execute()
         
-    elif any(word in user_text for word in ["basa koi", "basa kothay", "বাসা কোথায়", "কোথায় থাকো", "basa"]):
-        bot.reply_to(message, "আমি তো একটা বট! আমার বাসা ইন্টারনেটের Render সার্ভারে। ☁️📱")
-        
-    elif any(word in user_text for word in ["help lagbe", "sahajjo lagbe", "সাহায্য লাগবে", "হেল্প"]):
-        bot.reply_to(message, "বলো তোমার কী দরকার? আমি সাহায্য করার জন্যই প্রস্তুত আছি! 🤝")
-        
-    else:
-        if chat_type == 'private':
-            bot.reply_to(message, "দুঃখিত, এই কথার উত্তর আমার সিস্টেমে নেই। তুমি চাইলে মেসেজের শুরুতে `search` লিখে যেকোনো বিষয় সার্চ করে দেখতে পারো! 🔍")
+        # যদি কেউ রেফার করে থাকে এবং নিজের লিংকে নিজেই না ঢুকে থাকে
+        if referrer_id and referrer_id != user_id:
+            ref_check = supabase.table("users").select("*").eq("user_id", referrer_id).execute()
+            if ref_check.data:
+                # রেফারারের ব্যালেন্স এবং রেফার কাউন্ট বাড়ানো (যেমন: ১ টাকা করে)
+                old_balance = ref_check.data[0]['balance']
+                old_refs = ref_check.data[0]['referrals']
+                
+                supabase.table("users").update({
+                    "balance": old_balance + 1.0,
+                    "referrals": old_refs + 1
+                }).eq("user_id", referrer_id).execute()
+                
+                # রেফারারকে নোটিফিকেশন পাঠানো
+                try:
+                    bot.send_message(
+                        referrer_id, 
+                        "💰 আপনার ব্যালেন্সে ১ টাকা যোগ করা হয়েছে 💰"
+                    )
+                except:
+                    pass
 
-# সার্ভার ও বট রান করা
-if __name__ == '__main__':
+    bot.send_message(
+        message.chat.id, 
+        f"👋 Hello, 🇧🇩\n**{first_name}** 🇧🇩!\n\n📢 Join All Channels To Continue.",
+        reply_markup=main_menu(),
+        parse_mode="Markdown"
+    )
+
+# বাটন হ্যান্ডলার
+@bot.message_handler(func=lambda message: True)
+def handle_messages(message):
+    text = message.text
+    user_id = message.from_user.id
+    
+    # ডেটাবেজ থেকে ইউজারের তথ্য আনা
+    res = supabase.table("users").select("*").eq("user_id", user_id).execute()
+    user_data = res.data[0] if res.data else {"balance": 0.0, "wallet": "Not Set", "referrals": 0}
+
+    if text == "My Balance Ω":
+        bot.reply_to(message, f"💳 Your Balance: {user_data['balance']} টাকা\n👥 Total Referrals: {user_data['referrals']}")
+
+    elif text == "Refer & Earn 👥":
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+        
+        msg = (
+            f"🏅 Per Referral: 1 টাকা\n\n"
+            f"🔗 Your Referral Link: {ref_link}\n\n"
+            f"📊 Your Total Referrals: {user_data['referrals']} টি\n\n"
+            f"🚫 Fake and cheat referrals will not be paid"
+        )
+        bot.reply_to(message, msg)
+
+    elif text == "Set Wallet 💎":
+        msg = bot.reply_to(message, "📝 আপনার বিকাশ/নগদ নম্বরটি লিখে পাঠান:")
+        bot.register_next_step_handler(msg, save_wallet)
+
+    elif text == "Cash Out 💡":
+        balance = user_data['balance']
+        if balance < 10:
+            bot.reply_to(message, "⚠️ আপনার ব্যালেন্স কম আছে। আপনার টাকা উত্তোলনের জন্য কমপক্ষে আপনার ব্যালেন্সে 10 টাকা থাকতে হবে ⚠️")
+        else:
+            bot.reply_to(message, f"✅ আপনার উইথড্র রিকোয়েস্ট সফলভাবে জমা হয়েছে! বর্তমান ওয়ালেট: {user_data['wallet']}")
+
+def save_wallet(message):
+    user_id = message.from_user.id
+    wallet_no = message.text
+    
+    supabase.table("users").update({"wallet": wallet_no}).eq("user_id", user_id).execute()
+    bot.reply_to(message, f"✅ আপনার ওয়ালেট সফলভাবে সেভ হয়েছে: {wallet_no}", reply_markup=main_menu())
+
+if __name__ == "__main__":
     t = threading.Thread(target=run_web)
     t.start()
     
-    print("Bot is starting polling...")
+    print("Refer Bot is running...")
     bot.infinity_polling()
+    
